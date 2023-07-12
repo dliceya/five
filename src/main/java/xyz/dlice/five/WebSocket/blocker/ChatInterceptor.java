@@ -28,7 +28,6 @@ public class ChatInterceptor extends HttpSessionHandshakeInterceptor {
 
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, @Nullable Exception ex) {
-
         super.afterHandshake(request, response, wsHandler, ex);
     }
 }

@@ -84,20 +84,6 @@ public class TextMessageHandler extends TextWebSocketHandler {
             case ChatMessage:
                 ChatMessage chatMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.ChatMessage.getParseClass());
 
-                if (Strings.isBlank(chatMessage.getTargetUser())) {
-                    this.sendMessage(new CommonMessage(chatMessage.getSourceUser(), "私聊功能只能在对战时使用哦"));
-                    return;
-                }
-
-                if (allRooms.stream().noneMatch(
-                        p -> (Objects.equals(p.getSourceUser(), chatMessage.getSourceUser())
-                                && Objects.equals(p.getTargetUser(), chatMessage.getTargetUser()))
-                || (Objects.equals(p.getTargetUser(), chatMessage.getSourceUser())
-                        && Objects.equals(p.getSourceUser(), chatMessage.getTargetUser())))) {
-                    this.sendMessage(new CommonMessage(chatMessage.getSourceUser(), "您与对方未处于同一对局中，无法发送消息"));
-                    return;
-                }
-
                 this.sendMessage(chatMessage);
                 break;
         }
@@ -169,7 +155,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         }
 
         if (allClients.containsKey(name)) {
-            this.sendMessage(session, new CommonMessage(name, "当前用户名已存在，请换一个吧"));
+            this.sendMessage(session, new CommonMessage(name, CommonMessage.CommonMessageCode.NameRepeat));
             session.close();
         }
 
@@ -178,6 +164,8 @@ public class TextMessageHandler extends TextWebSocketHandler {
 
         this.updateFreeUserList();
         this.updateRoomList();
+
+        this.sendMessage(session, new CommonMessage(name, CommonMessage.CommonMessageCode.ConnectionSucceeded));
         log.info("用户：{} 已成功连接", name);
 
         // 定时任务，新连接建立后30分钟关闭该连接。

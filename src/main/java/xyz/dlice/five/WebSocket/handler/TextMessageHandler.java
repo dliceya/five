@@ -9,9 +9,14 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import xyz.dlice.five.domain.FightRoom;
-import xyz.dlice.five.domain.FiveMessage;
 import xyz.dlice.five.domain.constants.MessageConstants;
 import xyz.dlice.five.domain.message.*;
+import xyz.dlice.five.domain.message.battle.BattleMessage;
+import xyz.dlice.five.domain.message.battle.RequestFightMessage;
+import xyz.dlice.five.domain.message.chat.ChatMessage;
+import xyz.dlice.five.domain.message.sys.CommonMessage;
+import xyz.dlice.five.domain.message.sys.RoomListUpdateMessage;
+import xyz.dlice.five.domain.message.sys.UserListUpdateMessage;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -42,14 +47,14 @@ public class TextMessageHandler extends TextWebSocketHandler {
                 if (Strings.isBlank(requestFightMessage.getRequestId())) {
                     requestFightMessage.setRequestId(UUID.randomUUID().toString());
                     if (this.checkTargetUserFree(requestFightMessage.getTargetUser())) {
-                        this.sendCommonMessage(new CommonMessage(requestFightMessage.getSourceUser(), "请求对战的用户已下线或正在对局，请稍后重试"));
+                        this.sendMessage(new CommonMessage(requestFightMessage.getSourceUser(), "请求对战的用户已下线或正在对局，请稍后重试"));
                         return;
                     }
 
-                    this.sendCommonMessage(requestFightMessage);
+                    this.sendMessage(requestFightMessage);
                 } else {
                     if (!requestFightMessage.getIfTargetAgree()) {
-                        this.sendCommonMessage(new CommonMessage(requestFightMessage.getSourceUser(), "对方拒绝了您的对战请求"));
+                        this.sendMessage(new CommonMessage(requestFightMessage.getSourceUser(), "对方拒绝了您的对战请求"));
                         return;
                     }
 
@@ -71,16 +76,16 @@ public class TextMessageHandler extends TextWebSocketHandler {
             case BattleMessage:
                 BattleMessage battleMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.BattleMessage.getParseClass());
                 if (this.checkTargetUserFree(battleMessage.getTargetUser())) {
-                    this.sendCommonMessage(new CommonMessage(battleMessage.getSourceUser(), "对方已下线，请稍后重试"));
+                    this.sendMessage(new CommonMessage(battleMessage.getSourceUser(), "对方已下线"));
                     return;
                 }
-                this.sendCommonMessage(battleMessage);
+                this.sendMessage(battleMessage);
                 break;
             case ChatMessage:
                 ChatMessage chatMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.ChatMessage.getParseClass());
 
                 if (Strings.isBlank(chatMessage.getTargetUser())) {
-                    this.sendCommonMessage(new CommonMessage(chatMessage.getSourceUser(), "私聊功能只能在对战时使用哦"));
+                    this.sendMessage(new CommonMessage(chatMessage.getSourceUser(), "私聊功能只能在对战时使用哦"));
                     return;
                 }
 
@@ -89,11 +94,11 @@ public class TextMessageHandler extends TextWebSocketHandler {
                                 && Objects.equals(p.getTargetUser(), chatMessage.getTargetUser()))
                 || (Objects.equals(p.getTargetUser(), chatMessage.getSourceUser())
                         && Objects.equals(p.getSourceUser(), chatMessage.getTargetUser())))) {
-                    this.sendCommonMessage(new CommonMessage(chatMessage.getSourceUser(), "您与对方未处于同一对局中，无法发送消息"));
+                    this.sendMessage(new CommonMessage(chatMessage.getSourceUser(), "您与对方未处于同一对局中，无法发送消息"));
                     return;
                 }
 
-                this.sendCommonMessage(chatMessage);
+                this.sendMessage(chatMessage);
                 break;
         }
     }
@@ -102,7 +107,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         allClients.forEach((user, session) -> {
             UserListUpdateMessage message = new UserListUpdateMessage();
             message.setUserList(freeUserList);
-            this.sendCommonMessage(session, message);
+            this.sendMessage(session, message);
         });
     }
 
@@ -111,7 +116,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         allClients.forEach((user, session) -> {
             RoomListUpdateMessage message = new RoomListUpdateMessage();
             message.setRoomList(allRooms);
-            this.sendCommonMessage(session, message);
+            this.sendMessage(session, message);
         });
     }
 
@@ -120,7 +125,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         return !allClients.containsKey(targetUser) || !freeUserList.contains(targetUser);
     }
 
-    private void sendCommonMessage(FiveMessage message) {
+    private void sendMessage(BaseMessage message) {
 
         WebSocketSession session = allClients.get(message.getTargetUser());
 
@@ -133,7 +138,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         }
     }
 
-    private void sendCommonMessage(WebSocketSession session, FiveMessage message) {
+    private void sendMessage(WebSocketSession session, BaseMessage message) {
 
         if (session != null && session.isOpen()) {
             try {
@@ -154,17 +159,17 @@ public class TextMessageHandler extends TextWebSocketHandler {
         String name = (String) session.getAttributes().get("name");
 
         if (Strings.isBlank(name)) {
-            this.sendCommonMessage(session, new CommonMessage(name, "请输入用户名后再连接"));
+            this.sendMessage(session, new CommonMessage(name, "请输入用户名后再连接"));
             session.close();
         }
 
         if (allClients.size() > MAX_ONLINE_NUM){
-            this.sendCommonMessage(session, new CommonMessage(name, "当前同时在线人数过多，请稍后尝试"));
+            this.sendMessage(session, new CommonMessage(name, "当前同时在线人数过多，请稍后尝试"));
             session.close();
         }
 
         if (allClients.containsKey(name)) {
-            this.sendCommonMessage(session, new CommonMessage(name, "当前用户名已存在，请换一个吧"));
+            this.sendMessage(session, new CommonMessage(name, "当前用户名已存在，请换一个吧"));
             session.close();
         }
 
@@ -216,7 +221,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
         if (currentFightRoom.isPresent()) {
             FightRoom fightRoom = currentFightRoom.get();
             String antherUser = Objects.equals(fightRoom.getSourceUser(), name) ? fightRoom.getTargetUser() : fightRoom.getSourceUser();
-            this.sendCommonMessage(new CommonMessage(antherUser, "对方已离线, 您可以留在此页面稍后重新选择在线用户对战"));
+            this.sendMessage(new CommonMessage(antherUser, "对方已离线, 您可以留在此页面稍后重新选择在线用户对战"));
             freeUserList.add(antherUser);
             allRooms.remove(fightRoom);
         }

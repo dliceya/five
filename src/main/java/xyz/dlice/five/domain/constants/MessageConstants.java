@@ -1,9 +1,9 @@
 package xyz.dlice.five.domain.constants;
 
 import lombok.Getter;
-import xyz.dlice.five.domain.message.BattleMessage;
-import xyz.dlice.five.domain.message.ChatMessage;
-import xyz.dlice.five.domain.message.RequestFightMessage;
+import xyz.dlice.five.domain.message.battle.BattleMessage;
+import xyz.dlice.five.domain.message.chat.ChatMessage;
+import xyz.dlice.five.domain.message.battle.RequestFightMessage;
 
 public class MessageConstants {
 

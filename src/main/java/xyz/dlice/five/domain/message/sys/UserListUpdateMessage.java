@@ -3,6 +3,7 @@ package xyz.dlice.five.domain.message.sys;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
+import xyz.dlice.five.domain.entity.UserInfo;
 import xyz.dlice.five.domain.message.BaseMessage;
 
 import java.util.List;
@@ -14,6 +15,6 @@ public class UserListUpdateMessage extends BaseMessage {
 
     private String messageType = "UserListUpdateMessage";
 
-    private List<String> userList;
+    private List<UserInfo> userList;
 
 }

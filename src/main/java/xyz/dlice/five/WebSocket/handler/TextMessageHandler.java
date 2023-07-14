@@ -10,6 +10,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import xyz.dlice.five.domain.FightRoom;
 import xyz.dlice.five.domain.constants.MessageConstants;
+import xyz.dlice.five.domain.entity.UserInfo;
 import xyz.dlice.five.domain.message.*;
 import xyz.dlice.five.domain.message.battle.BattleMessage;
 import xyz.dlice.five.domain.message.battle.RequestFightMessage;
@@ -21,6 +22,7 @@ import xyz.dlice.five.domain.message.sys.UserListUpdateMessage;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class TextMessageHandler extends TextWebSocketHandler {
@@ -28,9 +30,11 @@ public class TextMessageHandler extends TextWebSocketHandler {
     private final Integer MAX_ONLINE_NUM = 32;
 
     // 用于存放所有建立连接的用户
-    private final Map<String, WebSocketSession> allClients = new HashMap<>(MAX_ONLINE_NUM);
+    private final Map<String, WebSocketSession> allClients = new ConcurrentHashMap<>(MAX_ONLINE_NUM);
+
     // 当前未在对局的在线用户
-    private final List<String> freeUserList = new ArrayList<>(MAX_ONLINE_NUM);
+    private final Map<String, UserInfo> freeUserMap = new HashMap<>(MAX_ONLINE_NUM);
+    private final Map<String, UserInfo> allUserMap = new HashMap<>(MAX_ONLINE_NUM);
 
     // 正在进行对局的房间
     private final List<FightRoom> allRooms = new ArrayList<>(MAX_ONLINE_NUM);
@@ -46,7 +50,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
                 // 为空表示发起请求放，将请求消息转发给目标用户
                 if (Strings.isBlank(requestFightMessage.getRequestId())) {
                     requestFightMessage.setRequestId(UUID.randomUUID().toString());
-                    if (this.checkTargetUserFree(requestFightMessage.getTargetUser())) {
+                    if (this.checkTargetUserNotFree(requestFightMessage.getTargetUser())) {
                         this.sendMessage(new CommonMessage(requestFightMessage.getSourceUser(), "请求对战的用户已下线或正在对局，请稍后重试"));
                         return;
                     }
@@ -68,14 +72,14 @@ public class TextMessageHandler extends TextWebSocketHandler {
                     allRooms.add(fightRoom);
                     this.updateRoomList();
 
-                    freeUserList.remove(requestFightMessage.getTargetUser());
-                    freeUserList.remove(requestFightMessage.getSourceUser());
+                    freeUserMap.remove(requestFightMessage.getTargetUser());
+                    freeUserMap.remove(requestFightMessage.getSourceUser());
                     this.updateFreeUserList();
                 }
                 break;
             case BattleMessage:
                 BattleMessage battleMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.BattleMessage.getParseClass());
-                if (this.checkTargetUserFree(battleMessage.getTargetUser())) {
+                if (this.checkTargetUserNotFree(battleMessage.getTargetUser())) {
                     this.sendMessage(new CommonMessage(battleMessage.getSourceUser(), "对方已下线"));
                     return;
                 }
@@ -92,7 +96,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
     private void updateFreeUserList() {
         allClients.forEach((user, session) -> {
             UserListUpdateMessage message = new UserListUpdateMessage();
-            message.setUserList(freeUserList);
+            message.setUserList(new ArrayList<>(freeUserMap.values()));
             this.sendMessage(session, message);
         });
     }
@@ -106,9 +110,9 @@ public class TextMessageHandler extends TextWebSocketHandler {
         });
     }
 
-    private boolean checkTargetUserFree(String targetUser) {
+    private boolean checkTargetUserNotFree(String targetUser) {
 
-        return !allClients.containsKey(targetUser) || !freeUserList.contains(targetUser);
+        return !allClients.containsKey(targetUser) || !freeUserMap.containsKey(targetUser);
     }
 
     private void sendMessage(BaseMessage message) {
@@ -143,6 +147,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
 
         // 获取到拦截器中设置的name
         String name = (String) session.getAttributes().get("name");
+        String qqNumber = (String) session.getAttributes().get("qqNumber");
 
         if (Strings.isBlank(name)) {
             this.sendMessage(session, new CommonMessage(name, "请输入用户名后再连接"));
@@ -159,8 +164,9 @@ public class TextMessageHandler extends TextWebSocketHandler {
             session.close();
         }
 
-        freeUserList.add(name);
         allClients.put(name, session);
+        freeUserMap.put(name, new UserInfo(name, qqNumber));
+        allUserMap.put(name, new UserInfo(name, qqNumber));
 
         this.updateFreeUserList();
         this.updateRoomList();
@@ -175,6 +181,8 @@ public class TextMessageHandler extends TextWebSocketHandler {
                 try {
                     session.close();
                     allClients.remove(name);
+                    freeUserMap.remove(name);
+                    allUserMap.remove(name);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -191,7 +199,8 @@ public class TextMessageHandler extends TextWebSocketHandler {
         String name = (String) session.getAttributes().get("name");
 
         allClients.remove(name);
-        freeUserList.remove(name);
+        freeUserMap.remove(name);
+        allUserMap.remove(name);
 
         this.destroyRoomByUser(name);
 
@@ -210,7 +219,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
             FightRoom fightRoom = currentFightRoom.get();
             String antherUser = Objects.equals(fightRoom.getSourceUser(), name) ? fightRoom.getTargetUser() : fightRoom.getSourceUser();
             this.sendMessage(new CommonMessage(antherUser, "对方已离线, 您可以留在此页面稍后重新选择在线用户对战"));
-            freeUserList.add(antherUser);
+            freeUserMap.put(antherUser, allUserMap.get(antherUser));
             allRooms.remove(fightRoom);
         }
     }

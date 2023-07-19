@@ -15,6 +15,7 @@ import xyz.dlice.five.domain.message.*;
 import xyz.dlice.five.domain.message.battle.BattleMessage;
 import xyz.dlice.five.domain.message.battle.RequestFightMessage;
 import xyz.dlice.five.domain.message.chat.ChatMessage;
+import xyz.dlice.five.domain.message.sys.AlertMessage;
 import xyz.dlice.five.domain.message.sys.CommonMessage;
 import xyz.dlice.five.domain.message.sys.RoomListUpdateMessage;
 import xyz.dlice.five.domain.message.sys.UserListUpdateMessage;
@@ -46,48 +47,46 @@ public class TextMessageHandler extends TextWebSocketHandler {
         switch (MessageConstants.MessageType.valueOf(messageType)) {
             case RequestFightMessage:
                 RequestFightMessage requestFightMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.RequestFightMessage.getParseClass());
-
                 // 为空表示发起请求放，将请求消息转发给目标用户
-                if (Strings.isBlank(requestFightMessage.getRequestId())) {
+                if (requestFightMessage.getIfTargetAgree() == null) {
                     requestFightMessage.setRequestId(UUID.randomUUID().toString());
-                    if (this.checkTargetUserNotFree(requestFightMessage.getTargetUser())) {
-                        this.sendMessage(new CommonMessage(requestFightMessage.getSourceUser(), "请求对战的用户已下线或正在对局，请稍后重试"));
+                    if (!this.checkTargetUserCanUse(requestFightMessage.getTargetUser()) || Objects.equals(this.getUserInfo(requestFightMessage.getTargetUser()).getStatus(), "对战中")) {
+                        this.sendMessage(new AlertMessage(requestFightMessage.getSourceUser(), "请求对战的用户已下线或正在对局，请稍后重试"));
                         return;
                     }
-
-                    this.sendMessage(requestFightMessage);
                 } else {
-                    if (!requestFightMessage.getIfTargetAgree()) {
-                        this.sendMessage(new CommonMessage(requestFightMessage.getSourceUser(), "对方拒绝了您的对战请求"));
-                        return;
+                    if (requestFightMessage.getIfTargetAgree()) {
+                        this.getUserInfo(requestFightMessage.getSourceUser()).setStatus("对战中");
+                        this.getUserInfo(requestFightMessage.getTargetUser()).setStatus("对战中");
+                        this.updateFreeUserList();
+
+                        FightRoom fightRoom = new FightRoom();
+                        fightRoom.setSourceUser(requestFightMessage.getTargetUser());
+                        fightRoom.setTargetUser(requestFightMessage.getSourceUser());
+                        fightRoom.setCreateTime(System.currentTimeMillis() / 1000L);
+                        fightRoom.setTimes(0);
+                        fightRoom.setSourceWinTimes(0);
+                        fightRoom.setTargetWinTimes(0);
+                        allRooms.add(fightRoom);
+                        this.updateRoomList();
                     }
 
-                    FightRoom fightRoom = new FightRoom();
-                    fightRoom.setSourceUser(requestFightMessage.getSourceUser());
-                    fightRoom.setTargetUser(requestFightMessage.getTargetUser());
-                    fightRoom.setCreateTime(System.currentTimeMillis() / 1000L);
-                    fightRoom.setTimes(0);
-                    fightRoom.setSourceWinTimes(0);
-                    fightRoom.setTargetWinTimes(0);
-                    allRooms.add(fightRoom);
-                    this.updateRoomList();
-
-                    freeUserMap.remove(requestFightMessage.getTargetUser());
-                    freeUserMap.remove(requestFightMessage.getSourceUser());
-                    this.updateFreeUserList();
                 }
+                this.sendMessage(requestFightMessage);
+
                 break;
             case BattleMessage:
                 BattleMessage battleMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.BattleMessage.getParseClass());
-                if (this.checkTargetUserNotFree(battleMessage.getTargetUser())) {
-                    this.sendMessage(new CommonMessage(battleMessage.getSourceUser(), "对方已下线"));
+                if (!this.checkTargetUserCanUse(battleMessage.getTargetUser())) {
+                    this.sendMessage(new AlertMessage(battleMessage.getSourceUser(), "对方已下线"));
+                    this.getUserInfo(battleMessage.getSourceUser()).setStatus("空闲中");
+                    this.updateFreeUserList();
                     return;
                 }
                 this.sendMessage(battleMessage);
                 break;
             case ChatMessage:
                 ChatMessage chatMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.ChatMessage.getParseClass());
-
                 this.sendMessage(chatMessage);
                 break;
         }
@@ -96,7 +95,7 @@ public class TextMessageHandler extends TextWebSocketHandler {
     private void updateFreeUserList() {
         allClients.forEach((user, session) -> {
             UserListUpdateMessage message = new UserListUpdateMessage();
-            message.setUserList(new ArrayList<>(freeUserMap.values()));
+            message.setUserList(new ArrayList<>(allUserMap.values()));
             this.sendMessage(session, message);
         });
     }
@@ -110,9 +109,9 @@ public class TextMessageHandler extends TextWebSocketHandler {
         });
     }
 
-    private boolean checkTargetUserNotFree(String targetUser) {
+    private boolean checkTargetUserCanUse(String targetUser) {
 
-        return !allClients.containsKey(targetUser) || !freeUserMap.containsKey(targetUser);
+        return allClients.containsKey(targetUser) && allUserMap.containsKey(targetUser);
     }
 
     private void sendMessage(BaseMessage message) {
@@ -152,24 +151,25 @@ public class TextMessageHandler extends TextWebSocketHandler {
         if (Strings.isBlank(name)) {
             this.sendMessage(session, new CommonMessage(name, "请输入用户名后再连接"));
             session.close();
+            return;
         }
 
         if (allClients.size() > MAX_ONLINE_NUM){
             this.sendMessage(session, new CommonMessage(name, "当前同时在线人数过多，请稍后尝试"));
             session.close();
+            return;
         }
 
         if (allClients.containsKey(name)) {
             this.sendMessage(session, new CommonMessage(name, CommonMessage.CommonMessageCode.NameRepeat));
             session.close();
+            return;
         }
 
         allClients.put(name, session);
-        freeUserMap.put(name, new UserInfo(name, qqNumber));
-        allUserMap.put(name, new UserInfo(name, qqNumber));
+        allUserMap.put(name, new UserInfo(name, qqNumber, "空闲中"));
 
         this.updateFreeUserList();
-        this.updateRoomList();
 
         this.sendMessage(session, new CommonMessage(name, CommonMessage.CommonMessageCode.ConnectionSucceeded));
         log.info("用户：{} 已成功连接", name);
@@ -199,13 +199,11 @@ public class TextMessageHandler extends TextWebSocketHandler {
         String name = (String) session.getAttributes().get("name");
 
         allClients.remove(name);
-        freeUserMap.remove(name);
         allUserMap.remove(name);
 
         this.destroyRoomByUser(name);
 
         this.updateFreeUserList();
-        this.updateRoomList();
 
         super.afterConnectionClosed(session, status);
 
@@ -218,10 +216,21 @@ public class TextMessageHandler extends TextWebSocketHandler {
         if (currentFightRoom.isPresent()) {
             FightRoom fightRoom = currentFightRoom.get();
             String antherUser = Objects.equals(fightRoom.getSourceUser(), name) ? fightRoom.getTargetUser() : fightRoom.getSourceUser();
-            this.sendMessage(new CommonMessage(antherUser, "对方已离线, 您可以留在此页面稍后重新选择在线用户对战"));
-            freeUserMap.put(antherUser, allUserMap.get(antherUser));
+
+            this.getUserInfo(antherUser).setStatus("空闲中");
+            this.sendMessage(new AlertMessage(antherUser, "对方已离线, 您可以留在此页面稍后重新选择在线用户对战"));
+            this.updateFreeUserList();
             allRooms.remove(fightRoom);
         }
     }
+
+    private UserInfo getUserInfo(String name) {
+        if (allUserMap.containsKey(name)) {
+            return allUserMap.get(name);
+        }
+
+        throw new RuntimeException("用户不存在");
+    }
+
 }
 

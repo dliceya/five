@@ -9,4 +9,7 @@ public class UserInfo {
     private String userName;
 
     private String qqNumber;
+
+    private String status;
+
 }

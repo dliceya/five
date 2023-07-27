@@ -19,4 +19,6 @@ public class BattleMessage extends BaseMessage {
 
     private Integer idy;
 
+    private int[][] chessBoard;
+
 }

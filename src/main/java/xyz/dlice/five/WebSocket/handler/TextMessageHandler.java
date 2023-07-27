@@ -8,6 +8,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import xyz.dlice.five.ai.NegMax;
 import xyz.dlice.five.domain.FightRoom;
 import xyz.dlice.five.domain.constants.MessageConstants;
 import xyz.dlice.five.domain.entity.UserInfo;
@@ -77,6 +78,20 @@ public class TextMessageHandler extends TextWebSocketHandler {
                 break;
             case BattleMessage:
                 BattleMessage battleMessage = JSON.parseObject(message.getPayload(), (Type) MessageConstants.MessageType.BattleMessage.getParseClass());
+                if (Objects.equals(battleMessage.getTargetUser(), "Robot")) {
+                    int[][] chessBoard = battleMessage.getChessBoard();
+                    chessBoard[battleMessage.getIdx()][battleMessage.getIdy()] = -1;
+                    NegMax max = new NegMax(1, chessBoard);
+                    int[] next = max.getNext(1);
+
+                    battleMessage.setTargetUser(battleMessage.getSourceUser());
+                    battleMessage.setSourceUser("Robot");
+                    battleMessage.setIdx(next[0]);
+                    battleMessage.setIdy(next[1]);
+                    this.sendMessage(battleMessage);
+                    break;
+                }
+
                 if (!this.checkTargetUserCanUse(battleMessage.getTargetUser())) {
                     this.sendMessage(new AlertMessage(battleMessage.getSourceUser(), "对方已下线"));
                     this.getUserInfo(battleMessage.getSourceUser()).setStatus("空闲中");

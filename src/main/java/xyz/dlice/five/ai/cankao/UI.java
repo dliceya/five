@@ -1,5 +1,7 @@
 package xyz.dlice.five.ai.cankao;
 
+import com.alibaba.fastjson.JSON;
+
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
@@ -42,6 +44,7 @@ public class UI {
                     }
                     drawArea.repaint();
                     int rob[] = robot.getNext(robotColor);
+                    System.out.println(JSON.toJSONString(rob));
                     chess.makeMove(rob[0], rob[1], robotColor);
                     rel = chess.isEnd(rob[0], rob[1], robotColor);
                     if(rel != 0) {
